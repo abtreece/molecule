@@ -23,6 +23,7 @@ import os
 import click
 
 from molecule import util
+from molecule import ansible_exec
 from molecule.command import base
 
 
@@ -52,12 +53,28 @@ class Create(base.Base):
             os.path.basename(self._config.scenario.setup))
         util.print_info(msg)
 
-        self._config.provisioner.converge(self._config.scenario.setup)
+        #  self._config.provisioner.converge(self._config.scenario.setup)
 
-        self._config.state.change_state('created', True)
-        # Add the driver's connection_options to inventory, once the instances
-        # are created.
-        self._config.provisioner.write_inventory()
+        #  self._config.state.change_state('created', True)
+        #  # Add the driver's connection_options to inventory, once the instances
+        #  # are created.
+        #  self._config.provisioner.write_inventory()
+
+        a = ansible_exec.AnsibleExec(self._config)
+        a.execute_module(
+            'docker_image', path='.', name='molecule_local/centos:7')
+
+        #  a.execute_module(
+        #      'docker_container',
+        #      name='instance-1',
+        #      hostname='instance-1',
+        #      image='molecule_local/centos:7',
+        #      state='started',
+        #      recreate='no',
+        #      log_driver='syslog',
+        #      command='sleep infinity', )
+
+        #  a.execute_module('docker_container', name='instance-1', state='absent')
 
 
 @click.command()
