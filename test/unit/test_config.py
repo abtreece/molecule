@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -18,150 +18,223 @@
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 
+import os
+
 import pytest
 
 from molecule import config
+from molecule import platforms
+from molecule import scenario
+from molecule import state
+from molecule.dependency import ansible_galaxy
+from molecule.dependency import gilt
+from molecule.driver import dockr
+from molecule.driver import lxc
+from molecule.driver import vagrant
+from molecule.lint import ansible_lint
+from molecule.provisioner import ansible
+from molecule.verifier import testinfra
 
 
-@pytest.fixture()
-def default_config_data():
-    return {'foo': 'bar', 'baz': 'qux'}
+def test_molecule_file_private_member(molecule_file, config_instance):
+    assert molecule_file == config_instance.molecule_file
 
 
-@pytest.fixture()
-def project_config_data():
-    return {'foo': 'bar', 'baz': 'project-override'}
+def test_args_member(config_instance):
+    assert {} == config_instance.args
 
 
-@pytest.fixture()
-def local_config_data():
-    return {'foo': 'local-override', 'baz': 'local-override'}
+def test_command_args_member(config_instance):
+    assert {} == config_instance.command_args
 
 
-@pytest.fixture()
-def config_instance(temp_files):
-    # TODO(retr0h): Rework molecule config so we can pass a generic
-    # config here.  Molecule currently expects to find a 'vagrant'
-    # key in this dict.
-    c = temp_files(fixtures=['molecule_vagrant_v1_config'])
+def test_ephemeral_directory_property(config_instance):
+    x = os.path.join(
+        config.molecule_ephemeral_directory(
+            config_instance.scenario.directory))
 
-    return config.ConfigV1(configs=c)
+    assert x == config_instance.ephemeral_directory
 
 
-@pytest.fixture()
-def patch_molecule_file_exists(monkeypatch):
-    def mockreturn(m):
-        return True
-
-    return monkeypatch.setattr('molecule.config.ConfigV1.molecule_file_exists',
-                               mockreturn)
+def test_dependency_property(config_instance):
+    assert isinstance(config_instance.dependency, ansible_galaxy.AnsibleGalaxy)
 
 
-def test_molecule_file_property(config_instance):
-    assert 'molecule.yml' == config_instance.molecule_file
+@pytest.fixture
+def molecule_dependency_gilt_section_data():
+    return {'dependency': {'name': 'gilt'}, }
 
 
-def test_build_config_paths(config_instance):
-    parts = pytest.helpers.os_split(config_instance.config['molecule'][
-        'state_file'])
-    assert ('state.yml') == parts[-1]
-    assert 'test/vagrantfile_file' == config_instance.config['molecule'][
-        'vagrantfile_file']
-    assert 'test/rakefile_file' == config_instance.config['molecule'][
-        'rakefile_file']
-    assert 'test/config_file' == config_instance.config['ansible'][
-        'config_file']
-    assert 'test/inventory_file' == config_instance.config['ansible'][
-        'inventory_file']
+def test_dependency_property_is_gilt(molecule_dependency_gilt_section_data,
+                                     config_instance):
+    config_instance.config.update(molecule_dependency_gilt_section_data)
+
+    assert isinstance(config_instance.dependency, gilt.Gilt)
 
 
-@pytest.fixture()
-def build_config_paths_molecule_data():
-    return {
-        'molecule': {
-            'state_file': 'state_path',
-            'vagrantfile_file': '/full/path/vagrantfile_file',
-            'rakefile_file': 'relative/path/rakefile_file',
-            'molecule_dir': 'test'
-        },
-        'ansible': {
-            'config_file': 'config_file',
-            'inventory_file': 'inventory_file',
-            'playbook': 'playbook.yml'
-        }
-    }
+@pytest.fixture
+def molecule_dependency_invalid_section_data():
+    return {'dependency': {'name': 'invalid'}, }
 
 
-# NOTE(retr0h): ``os.path.join`` does this for us.
-def test_build_config_paths_preserves_full_path(temp_files):
-    confs = temp_files(fixtures=['build_config_paths_molecule_data'])
-    c = config.ConfigV1(configs=confs)
+def test_dependency_property_raises(molecule_dependency_invalid_section_data,
+                                    patched_logger_critical, config_instance):
+    config_instance.config.update(molecule_dependency_invalid_section_data)
+    with pytest.raises(SystemExit) as e:
+        config_instance.dependency
 
-    assert '/full/path/vagrantfile_file' == c.config['molecule'][
-        'vagrantfile_file']
+    assert 1 == e.value.code
 
-
-def test_build_config_paths_preserves_relative_path(temp_files):
-    confs = temp_files(fixtures=['build_config_paths_molecule_data'])
-    c = config.ConfigV1(configs=confs)
-
-    assert 'relative/path/rakefile_file' == c.config['molecule'][
-        'rakefile_file']
+    msg = "Invalid dependency named 'invalid' configured."
+    patched_logger_critical.assert_called_once_with(msg)
 
 
-def test_populate_instance_names(config_instance):
-    config_instance.populate_instance_names('rhel-7')
-
-    assert 'aio-01-rhel-7' == config_instance.config['vagrant']['instances'][
-        0]['vm_name']
+def test_driver_property(config_instance):
+    assert isinstance(config_instance.driver, dockr.Dockr)
 
 
-def test_molecule_file_exists(temp_files, patch_molecule_file_exists):
-    configs = temp_files(fixtures=['molecule_vagrant_v1_config'])
-    c = config.ConfigV1(configs=configs)
-
-    assert c.molecule_file_exists()
+@pytest.fixture
+def molecule_driver_vagrant_section_data():
+    return {'driver': {'name': 'vagrant'}, }
 
 
-def test_molecule_file_does_not_exist(config_instance):
-    assert not config_instance.molecule_file_exists()
+def test_driver_property_is_vagrant(molecule_driver_vagrant_section_data,
+                                    config_instance):
+    config_instance.config.update(molecule_driver_vagrant_section_data)
+
+    assert isinstance(config_instance.driver, vagrant.Vagrant)
 
 
-def test_get_config(config_instance):
-    assert isinstance(config_instance.config, dict)
+@pytest.fixture
+def molecule_driver_lxc_section_data():
+    return {'driver': {'name': 'lxc'}, }
 
 
-def test_combine_default_config(temp_files):
-    c = temp_files(fixtures=['default_config_data'])
-    config_instance = config.ConfigV1(configs=c).config
+def test_driver_property_is_lxc(molecule_driver_lxc_section_data,
+                                config_instance):
+    config_instance.config.update(molecule_driver_lxc_section_data)
 
-    assert 'bar' == config_instance['foo']
-    assert 'qux' == config_instance['baz']
-
-
-def test_combine_project_config_overrides_default_config(temp_files):
-    c = temp_files(fixtures=['default_config_data', 'project_config_data'])
-    config_instance = config.ConfigV1(configs=c).config
-
-    assert 'bar' == config_instance['foo']
-    assert 'project-override' == config_instance['baz']
+    assert isinstance(config_instance.driver, lxc.Lxc)
 
 
-def test_combine_local_config_overrides_default_and_project_config(temp_files):
-    c = temp_files(fixtures=[
-        'default_config_data', 'project_config_data', 'local_config_data'
-    ])
-    config_instance = config.ConfigV1(configs=c).config
-
-    assert 'local-override' == config_instance['foo']
-    assert 'local-override' == config_instance['baz']
+@pytest.fixture
+def molecule_driver_invalid_section_data():
+    return {'driver': {'name': 'invalid'}, }
 
 
-def test_merge_dicts():
-    # Example taken from python-anyconfig/anyconfig/__init__.py
+def test_driver_property_raises(molecule_driver_invalid_section_data,
+                                patched_logger_critical, config_instance):
+    config_instance.config.update(molecule_driver_invalid_section_data)
+    with pytest.raises(SystemExit) as e:
+        config_instance.driver
+
+    assert 1 == e.value.code
+
+    msg = "Invalid driver named 'invalid' configured."
+    patched_logger_critical.assert_called_once_with(msg)
+
+
+def test_lint_property(config_instance):
+    assert isinstance(config_instance.lint, ansible_lint.AnsibleLint)
+
+
+@pytest.fixture
+def molecule_lint_invalid_section_data():
+    return {'lint': {'name': 'invalid'}, }
+
+
+def test_lint_property_raises(molecule_lint_invalid_section_data,
+                              patched_logger_critical, config_instance):
+    config_instance.config.update(molecule_lint_invalid_section_data)
+    with pytest.raises(SystemExit) as e:
+        config_instance.lint
+
+    assert 1 == e.value.code
+
+    msg = "Invalid lint named 'invalid' configured."
+    patched_logger_critical.assert_called_once_with(msg)
+
+
+def test_platforms_property(config_instance):
+    assert isinstance(config_instance.platforms, platforms.Platforms)
+
+
+def test_provisioner_property(config_instance):
+    assert isinstance(config_instance.provisioner, ansible.Ansible)
+
+
+@pytest.fixture
+def molecule_provisioner_invalid_section_data():
+    return {'provisioner': {'name': 'invalid'}, }
+
+
+def test_provisioner_property_raises(molecule_provisioner_invalid_section_data,
+                                     patched_logger_critical, config_instance):
+    config_instance.config.update(molecule_provisioner_invalid_section_data)
+    with pytest.raises(SystemExit) as e:
+        config_instance.provisioner
+
+    assert 1 == e.value.code
+
+    msg = "Invalid provisioner named 'invalid' configured."
+    patched_logger_critical.assert_called_once_with(msg)
+
+
+def test_scenario_property(config_instance):
+    assert isinstance(config_instance.scenario, scenario.Scenario)
+
+
+def test_state_property(config_instance):
+    assert isinstance(config_instance.state, state.State)
+
+
+def test_verifier_property(config_instance):
+    assert isinstance(config_instance.verifier, testinfra.Testinfra)
+
+
+@pytest.fixture
+def molecule_verifier_invalid_section_data():
+    return {'verifier': {'name': 'invalid'}, }
+
+
+def test_verifier_property_raises(molecule_verifier_invalid_section_data,
+                                  patched_logger_critical, config_instance):
+    config_instance.config.update(molecule_verifier_invalid_section_data)
+    with pytest.raises(SystemExit) as e:
+        config_instance.verifier
+
+    assert 1 == e.value.code
+
+    msg = "Invalid verifier named 'invalid' configured."
+    patched_logger_critical.assert_called_once_with(msg)
+
+
+def test_exit_with_invalid_section(config_instance, patched_logger_critical):
+    with pytest.raises(SystemExit) as e:
+        config_instance._exit_with_invalid_section('section', 'name')
+
+    assert 1 == e.value.code
+
+    msg = "Invalid section named 'name' configured."
+    patched_logger_critical.assert_called_once_with(msg)
+
+
+def test_merge_dicts(config_instance):
+    # example taken from python-anyconfig/anyconfig/__init__.py
     a = {'b': [{'c': 0}, {'c': 2}], 'd': {'e': 'aaa', 'f': 3}}
     b = {'a': 1, 'b': [{'c': 3}], 'd': {'e': 'bbb'}}
-    expected = {'a': 1, 'b': [{'c': 3}], 'd': {'e': "bbb", 'f': 3}}
-    result = config.merge_dicts(a, b)
+    x = {'a': 1, 'b': [{'c': 3}], 'd': {'e': "bbb", 'f': 3}}
 
-    assert expected == result
+    assert x == config.merge_dicts(a, b)
+
+
+def test_molecule_directory():
+    assert '/foo/molecule' == config.molecule_directory('/foo')
+
+
+def test_molecule_ephemeral_directory():
+    assert '/foo/.molecule' == config.molecule_ephemeral_directory('/foo')
+
+
+def test_molecule_file():
+    assert '/foo/molecule.yml' == config.molecule_file('/foo')

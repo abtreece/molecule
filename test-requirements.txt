@@ -1,9 +1,9 @@
-docker-py==1.10.3
+docker-py
+# lxc-python2
 mock
 pytest
 pytest-cov
 pytest-helpers-namespace
 pytest-mock
-python-vagrant==0.5.14
-shade==1.12.1
+python-vagrant
 wheel

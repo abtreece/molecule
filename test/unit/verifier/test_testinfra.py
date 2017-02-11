@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -23,87 +23,159 @@ import os
 import pytest
 import sh
 
+from molecule import config
 from molecule.verifier import testinfra
 
 
-@pytest.fixture()
-def testinfra_instance(molecule_instance):
-    return testinfra.Testinfra(molecule_instance)
-
-
 @pytest.fixture
-def patched_code_verifier(mocker):
-    return mocker.patch('molecule.verifier.testinfra.Testinfra._flake8')
+def testinfra_instance(molecule_verifier_section_data, config_instance):
+    config_instance.config.update(molecule_verifier_section_data)
+
+    return testinfra.Testinfra(config_instance)
 
 
-@pytest.fixture
-def patched_test_verifier(mocker):
-    return mocker.patch('molecule.verifier.testinfra.Testinfra._testinfra')
+def test_config_private_member(testinfra_instance):
+    assert isinstance(testinfra_instance._config, config.Config)
 
 
-@pytest.fixture
-def patched_get_tests(mocker):
-    return mocker.patch('molecule.verifier.testinfra.Testinfra._get_tests')
+def test_default_options_property(testinfra_instance):
+    assert {
+        'connection': 'ansible',
+        'ansible-inventory': '.molecule/ansible_inventory.yml'
+    } == testinfra_instance.default_options
 
 
-@pytest.fixture
-def patched_ansible(mocker):
-    return mocker.patch('molecule.ansible_playbook.AnsiblePlaybook')
+def test_default_options_property_updates_debug(testinfra_instance):
+    testinfra_instance._config.args = {'debug': True}
+    assert {
+        'connection': 'ansible',
+        'ansible-inventory': '.molecule/ansible_inventory.yml',
+        'debug': True
+    } == testinfra_instance.default_options
 
 
-def test_execute(mocker, patched_code_verifier, patched_test_verifier,
-                 patched_get_tests, patched_ansible, testinfra_instance):
-    patched_get_tests.return_value = ['/test/1', '/test/2']
-    patched_ansible.return_value = mocker.Mock(env={})
-    testinfra_instance._molecule.args = {'debug': True, 'sudo': True}
+def test_default_options_property_updates_sudo(testinfra_instance,
+                                               patched_testinfra_get_tests):
+    testinfra_instance._config.args = {'sudo': True}
+    assert {
+        'connection': 'ansible',
+        'ansible-inventory': '.molecule/ansible_inventory.yml',
+        'sudo': True
+    } == testinfra_instance.default_options
+
+
+def test_default_env_property(testinfra_instance):
+    assert isinstance(testinfra_instance.default_env, dict)
+
+
+def test_env_property(testinfra_instance):
+    assert 'bar' == testinfra_instance.env['foo']
+
+
+def test_name_property(testinfra_instance):
+    assert 'testinfra' == testinfra_instance.name
+
+
+def test_enabled_property(testinfra_instance):
+    assert testinfra_instance.enabled
+
+
+def test_directory_property(testinfra_instance):
+    parts = testinfra_instance.directory.split(os.path.sep)
+    assert 'tests' == parts[-1]
+
+
+def test_options_property(testinfra_instance):
+    assert {
+        'connection': 'ansible',
+        'ansible-inventory': '.molecule/ansible_inventory.yml',
+        'foo': 'bar',
+        'vvv': True,
+        'verbose': True,
+    } == testinfra_instance.options
+
+
+def test_options_property_handles_cli_args(testinfra_instance):
+    testinfra_instance._config.args = {'debug': True}
+
+    assert {
+        'connection': 'ansible',
+        'ansible-inventory': '.molecule/ansible_inventory.yml',
+        'foo': 'bar',
+        'debug': True,
+        'vvv': True,
+        'verbose': True,
+    } == testinfra_instance.options
+
+
+def test_bake(testinfra_instance):
+    testinfra_instance._tests = ['test1', 'test2', 'test3']
+    testinfra_instance.bake()
+    x = [
+        str(sh.testinfra),
+        '--ansible-inventory=.molecule/ansible_inventory.yml',
+        '--connection=ansible', '-vvv', '--foo=bar', 'test1', 'test2', 'test3'
+    ]
+    result = str(testinfra_instance._testinfra_command).split()
+
+    assert sorted(x) == sorted(result)
+
+
+def test_execute(patched_flake8, patched_logger_info, patched_run_command,
+                 patched_testinfra_get_tests, patched_logger_success,
+                 testinfra_instance):
+    testinfra_instance._testinfra_command = 'patched-command'
     testinfra_instance.execute()
 
-    patched_code_verifier.assert_called_once_with(['/test/1', '/test/2'])
-    patched_test_verifier.assert_called_once_with(
-        ['/test/1', '/test/2'],
-        ansible_inventory='test/inventory_file',
-        ansible_env={},
-        connection='ansible',
-        debug=True,
-        sudo=True)
+    patched_run_command.assert_called_once_with('patched-command', debug=None)
+
+    patched_flake8.assert_called_once_with()
+
+    msg = 'Executing testinfra tests found in {}/...'.format(
+        testinfra_instance.directory)
+    patched_logger_info.assert_called_once_with(msg)
+
+    msg = 'Verifier completed successfully.'
+    patched_logger_success.assert_called_once_with(msg)
 
 
-def test_execute_no_tests(patched_code_verifier, patched_test_verifier,
-                          patched_get_tests, testinfra_instance):
-    patched_get_tests.return_value = []
+def test_execute_does_not_execute(patched_run_command, patched_logger_warn,
+                                  testinfra_instance):
+    testinfra_instance._config.config['verifier']['enabled'] = False
     testinfra_instance.execute()
 
-    assert not patched_code_verifier.called
-    assert not patched_test_verifier.called
+    assert not patched_run_command.called
+
+    msg = 'Skipping, verifier is disabled.'
+    patched_logger_warn.assert_called_once_with(msg)
 
 
-def test_testinfra(patched_run_command, patched_get_tests, testinfra_instance):
-    args = ['/tmp/ansible-inventory']
-    kwargs = {'debug': False, '_out': None, '_err': None}
-    testinfra_instance._testinfra(*args, **kwargs)
+def test_does_not_execute_without_tests(
+        patched_run_command, patched_logger_warn, testinfra_instance):
+    testinfra_instance.execute()
 
-    x = sh.testinfra.bake('/tmp/ansible-inventory')
-    patched_run_command.assert_called_once_with(x, debug=None)
+    assert not patched_run_command.called
 
-
-def test_flake8(patched_run_command, testinfra_instance):
-    args = ['test1.py', 'test2.py']
-    testinfra_instance._flake8(args)
-
-    x = sh.flake8.bake('test1.py', 'test2.py')
-    patched_run_command.assert_called_once_with(x, debug=None)
+    msg = 'Skipping, no tests found.'
+    patched_logger_warn.assert_called_once_with(msg)
 
 
-def test_get_tests(temp_dir, testinfra_instance):
-    testinfra_instance._testinfra_dir = temp_dir
-    dir1 = os.path.join(temp_dir, 'foo')
-    dir2 = os.path.join(temp_dir, 'foo', 'bar')
+def test_execute_bakes(patched_flake8, patched_run_command,
+                       patched_testinfra_get_tests, testinfra_instance):
+    testinfra_instance.execute()
 
-    os.mkdir(dir1)
-    os.mkdir(dir2)
+    assert testinfra_instance._testinfra_command is not None
 
-    test_file = os.path.join(dir2, 'test_default.py')
-    open(test_file, 'a').close()
+    patched_flake8.assert_called_once_with()
+    assert 1 == patched_run_command.call_count
 
-    assert 1 == len(testinfra_instance._get_tests())
-    assert test_file == testinfra_instance._get_tests()[0]
+
+def test_executes_catches_and_exits_return_code(
+        patched_flake8, patched_run_command, patched_testinfra_get_tests,
+        testinfra_instance):
+    patched_run_command.side_effect = sh.ErrorReturnCode_1(sh.testinfra, b'',
+                                                           b'')
+    with pytest.raises(SystemExit) as e:
+        testinfra_instance.execute()
+
+    assert 1 == e.value.code

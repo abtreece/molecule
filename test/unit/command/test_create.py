@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -18,62 +18,37 @@
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 
-import subprocess
-
-import pytest
-
 from molecule.command import create
 
 
-def test_execute_creates_instances(
-        patched_driver_up, patched_create_templates, patched_remove_inventory,
-        patched_create_inventory, patched_print_info, molecule_instance):
-    c = create.Create({}, {}, molecule_instance)
-    result = c.execute()
+def test_execute(mocker, patched_provisioner_write_inventory,
+                 patched_logger_info, patched_ansible_converge,
+                 config_instance):
+    c = create.Create(config_instance)
+    c.execute()
+    x = [
+        mocker.call('Scenario: [default]'),
+        mocker.call('Provisioner: [ansible]'),
+        mocker.call('Playbook: [create.yml]')
+    ]
 
-    patched_remove_inventory.assert_called_once()
-    patched_create_templates.assert_called_once()
+    assert x == patched_logger_info.mock_calls
 
-    msg = 'Creating instances...'
-    patched_print_info.assert_called_once_with(msg)
-    assert molecule_instance.state.created
-    patched_driver_up.assert_called_once_with(no_provision=True)
-    (None, None) == result
+    patched_ansible_converge.assert_called_once_with(
+        config_instance.scenario.setup)
+
+    assert config_instance.state.created
+
+    patched_provisioner_write_inventory.assert_called_once_with()
 
 
-def test_execute_creates_instances_with_platform_all(
-        patched_driver_up, patched_create_templates, patched_remove_inventory,
-        patched_create_inventory, molecule_instance):
-    command_args = {'platform': 'all'}
-    c = create.Create({}, command_args, molecule_instance)
+def test_execute_bla(patched_logger_warn, patched_ansible_converge,
+                     config_instance):
+    config_instance.state.change_state('created', True)
+    c = create.Create(config_instance)
     c.execute()
 
-    patched_driver_up.assert_called_once_with(no_provision=True)
-    assert molecule_instance.state.multiple_platforms
+    msg = 'Skipping, instances already created.'
+    patched_logger_warn.assert_called_once_with(msg)
 
-
-def test_execute_raises_on_exit(
-        patched_driver_up, patched_create_templates, patched_remove_inventory,
-        patched_create_inventory, patched_print_error,
-        patched_write_instances_state, molecule_instance):
-    patched_driver_up.side_effect = subprocess.CalledProcessError(1, None,
-                                                                  None)
-    c = create.Create({}, {}, molecule_instance)
-    with pytest.raises(SystemExit):
-        c.execute()
-    msg = "Command 'None' returned non-zero exit status 1"
-    patched_print_error.assert_called_with(msg)
-    assert not patched_create_inventory.called
-    assert not patched_write_instances_state.called
-
-
-def test_execute_does_not_raise_on_exit(
-        patched_driver_up, patched_create_templates, patched_remove_inventory,
-        patched_create_inventory, patched_write_instances_state,
-        molecule_instance):
-    patched_driver_up.side_effect = subprocess.CalledProcessError(1, None,
-                                                                  None)
-    c = create.Create({}, {}, molecule_instance)
-    result = c.execute(exit=False)
-
-    assert (1, '') == result
+    assert not patched_ansible_converge.called

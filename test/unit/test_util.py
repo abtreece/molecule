@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -18,87 +18,19 @@
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 
+from __future__ import print_function
+
 import binascii
 import os
-import uuid
 
 import colorama
 import pytest
 import sh
 
+from molecule import config
 from molecule import util
 
-
-def test_print_success(capsys):
-    util.print_success('test')
-    result, _ = capsys.readouterr()
-
-    print '{}{}'.format(colorama.Fore.GREEN, 'test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_print_info(capsys):
-    util.print_info('test')
-    result, _ = capsys.readouterr()
-
-    print '--> {}{}'.format(colorama.Fore.CYAN, 'test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_print_info_without_pretty(capsys):
-    util.print_info('test', pretty=False)
-    result, _ = capsys.readouterr()
-
-    print '{}'.format('test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_print_warn(capsys):
-    util.print_warn('test')
-    result, _ = capsys.readouterr()
-
-    print '{}{}'.format(colorama.Fore.YELLOW, 'test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_print_error(capsys):
-    util.print_error('test')
-    result, _ = capsys.readouterr()
-
-    print '{}ERROR: {}'.format(colorama.Fore.RED, 'test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_print_error_without_pretty(capsys):
-    util.print_error('test', pretty=False)
-    result, _ = capsys.readouterr()
-
-    print '{}{}'.format(colorama.Fore.RED, 'test'.rstrip())
-    expected, _ = capsys.readouterr()
-
-    assert expected == result
-
-
-def test_callback_info(patched_print_info):
-    util.callback_info('test')
-
-    patched_print_info.assert_called_with('test', pretty=False)
-
-
-def test_callback_error(patched_print_error):
-    util.callback_error('test')
-
-    patched_print_error.assert_called_with('test', pretty=False)
+colorama.init(autoreset=True)
 
 
 def test_print_debug(capsys):
@@ -119,72 +51,6 @@ def test_print_debug(capsys):
     assert expected_title == result_title
 
 
-def test_write_template(temp_dir):
-    source_file = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), os.path.pardir,
-        'resources', 'test_write_template.j2')
-    dest_file = os.path.join(temp_dir, 'test_util_write_template.tmp')
-    util.write_template(source_file, dest_file, {'test': 'chicken'})
-    with open(dest_file, 'r') as f:
-        data = f.read()
-
-    assert data == 'this is a chicken\n'
-
-
-def test_write_template_template_does_not_exist(temp_dir):
-    dest_file = os.path.join(temp_dir, 'test_util_write_template.tmp')
-    with pytest.raises(SystemExit):
-        util.write_template('/non/existent', dest_file, {'foo': 'bar'})
-
-
-def test_write_file(temp_dir):
-    dest_file = os.path.join(temp_dir, 'test_util_write_file.tmp')
-    contents = binascii.b2a_hex(os.urandom(15))
-    util.write_file(dest_file, contents)
-    with open(dest_file, 'r') as f:
-        data = f.read()
-
-    assert data == contents
-
-
-def test_format_instance_name_00():
-    instances = [{'name': 'test-01'}]
-    actual = util.format_instance_name('test-02', 'rhel-7', instances)
-
-    assert actual is None
-
-
-def test_format_instance_name_01():
-    instances = [{'name': 'test-01'}]
-    actual = util.format_instance_name('test-01', 'rhel-7', instances)
-
-    assert 'test-01' == actual
-
-
-def test_format_instance_name_02():
-    instances = [{
-        'name': 'test-01',
-        'options': {
-            'append_platform_to_hostname': True
-        }
-    }]
-    actual = util.format_instance_name('test-01', 'rhel-7', instances)
-
-    assert 'test-01-rhel-7' == actual
-
-
-def test_format_instance_name_03():
-    instances = [{'name': 'test-01', 'options': {'chicken': False}}]
-    actual = util.format_instance_name('test-01', 'rhel-7', instances)
-
-    assert 'test-01' == actual
-
-
-@pytest.mark.skipif(reason="determine how to test such a function")
-def test_check_ssh_availability():
-    pass
-
-
 def test_sysexit():
     with pytest.raises(SystemExit) as e:
         util.sysexit()
@@ -199,6 +65,24 @@ def test_sysexit_with_custom_code():
     assert 2 == e.value.code
 
 
+def test_sysexit_with_message(patched_logger_critical):
+    with pytest.raises(SystemExit) as e:
+        util.sysexit_with_message('foo')
+
+    assert 1 == e.value.code
+
+    patched_logger_critical.assert_called_once_with('foo')
+
+
+def test_sysexit_with_message_and_custom_code(patched_logger_critical):
+    with pytest.raises(SystemExit) as e:
+        util.sysexit_with_message('foo', 2)
+
+    assert 2 == e.value.code
+
+    patched_logger_critical.assert_called_once_with('foo')
+
+
 def test_run_command():
     cmd = sh.ls.bake()
     x = util.run_command(cmd)
@@ -210,37 +94,86 @@ def test_run_command_with_debug(patched_print_debug):
     cmd = sh.ls.bake()
     util.run_command(cmd, debug=True)
 
-    patched_print_debug.assert_called_with('COMMAND', '/bin/ls')
+    patched_print_debug.assert_called_once_with('COMMAND', sh.which('ls'))
 
 
-def test_resolve_template_dir_relative():
-    result = util._resolve_template_dir('foo')
+def test_os_walk(temp_dir):
+    scenarios = ['scenario1', 'scenario2', 'scenario3']
+    molecule_directory = config.molecule_directory(temp_dir.strpath)
+    for scenario in scenarios:
+        scenario_directory = os.path.join(molecule_directory, scenario)
+        molecule_file = config.molecule_file(scenario_directory)
+        os.makedirs(scenario_directory)
+        open(molecule_file, 'a').close()
 
-    parts = pytest.helpers.os_split(result)
-
-    assert ('molecule', 'cookiecutter', 'foo') == parts[-3:]
-
-
-def test_resolve_template_dir_absolute():
-    result = util._resolve_template_dir('/foo/bar')
-
-    parts = pytest.helpers.os_split(result)
-
-    assert ('foo', 'bar') == parts[-2:]
+    result = [f for f in util.os_walk(molecule_directory, 'molecule.yml')]
+    assert 3 == len(result)
 
 
-def test_process_templates(temp_dir):
-    template_dir = os.path.join(
-        os.path.dirname(__file__), os.path.pardir, 'resources', 'templates')
-    repo_name = str(uuid.uuid4())
+def test_render_template():
+    template = "{{ foo }} = {{ bar}}"
 
-    context = {'repo_name': repo_name}
+    "foo = bar" == util.render_template(template, foo='foo', bar='bar')
 
-    util.process_templates(template_dir, context, temp_dir)
 
-    expected_file = os.path.join(temp_dir, repo_name, 'template.yml')
-    expected_contents = '- value: foo'
+def test_write_file(temp_dir):
+    dest_file = os.path.join(temp_dir.strpath, 'test_util_write_file.tmp')
+    contents = binascii.b2a_hex(os.urandom(15)).decode()
+    util.write_file(dest_file, contents)
+    with open(dest_file, 'r') as stream:
+        data = stream.read()
+    x = '# Molecule managed\n\n{}'.format(contents)
 
-    with open(expected_file) as f:
-        for line in f.readlines():
-            assert line.strip() in expected_contents
+    assert x == data
+
+
+def test_safe_dump():
+    x = '---\nfoo: bar\n'
+
+    assert x == util.safe_dump({'foo': 'bar'})
+
+
+def test_safe_load():
+    assert {'foo': 'bar'} == util.safe_load('foo: bar')
+
+
+def test_safe_load_returns_empty_dict_on_empty_string():
+    assert {} == util.safe_load('')
+
+
+def test_safe_load_file(temp_dir):
+    path = os.path.join(temp_dir.strpath, 'foo')
+    util.write_file(path, 'foo: bar')
+
+    assert {'foo': 'bar'} == util.safe_load_file(path)
+
+
+def test_instance_with_scenario_name():
+    assert 'foo-bar' == util.instance_with_scenario_name('foo', 'bar')
+
+
+def test_ansi_escape():
+    string = 'ls\r\n\x1b[00m\x1b[01;31mfoo\x1b[00m\r\n\x1b[01;31m'
+
+    assert 'ls\r\nfoo\r\n' == util.ansi_escape(string)
+
+
+def test_verbose_flag():
+    options = {'verbose': True, 'v': True}
+
+    assert ['-v'] == util.verbose_flag(options)
+    assert {} == options
+
+
+def test_verbose_flag_extra_verbose():
+    options = {'verbose': True, 'vvv': True}
+
+    assert ['-vvv'] == util.verbose_flag(options)
+    assert {} == options
+
+
+def test_verbose_flag_preserves_verbose_option():
+    options = {'verbose': True}
+
+    assert [] == util.verbose_flag(options)
+    assert {'verbose': True} == options

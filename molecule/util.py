@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -20,29 +20,20 @@
 
 from __future__ import print_function
 
-import cookiecutter
-import cookiecutter.main
-
+import fnmatch
+import jinja2
 import os
+import re
 import sys
 
 import colorama
-import jinja2
+import yaml
+
+from molecule import logger
+
+LOG = logger.get_logger(__name__)
 
 colorama.init(autoreset=True)
-
-
-def print_success(msg):
-    template = '{}{{}}'.format(colorama.Fore.GREEN)
-    print_msg(template, msg)
-
-
-def print_info(msg, pretty=True):
-    if pretty:
-        template = '--> {}{{}}'.format(colorama.Fore.CYAN)
-        print_msg(template, msg)
-    else:
-        print_msg('{}', msg)
 
 
 def print_debug(title, data):
@@ -57,109 +48,41 @@ def print_debug(title, data):
     ]))
 
 
-def print_warn(msg):
-    template = '{}{{}}'.format(colorama.Fore.YELLOW)
-    print_msg(template, msg)
+def sysexit(code=1):
+    sys.exit(code)
 
 
-def print_error(msg, pretty=True):
-    color = colorama.Fore.RED
-    if pretty:
-        template = '{}ERROR: {{}}'.format(color)
-        print_msg(template, msg)
-    else:
-        template = '{}{{}}'.format(color)
-        print_msg(template, msg)
+def sysexit_with_message(msg, code=1):
+    LOG.critical(msg)
+    sysexit(code)
 
 
-def print_msg(template, msg):
-    print(template.format(msg.rstrip()))
-
-
-def callback_info(msg):
-    """ A `print_info` wrapper to stream `sh` modules stdout. """
-    print_info(msg, pretty=False)
-
-
-def callback_error(msg):
-    """ A `print_error` wrapper to stream `sh` modules stderr. """
-    print_error(msg, pretty=False)
-
-
-def write_template(src, dest, kwargs={}, _module='molecule', _dir='template'):
+def run_command(cmd, debug=False):
     """
-    Writes a file from a jinja2 template and returns None.
-
-    :param src: A string containing the the target template files to use.
-    :param dest: A string containing the destination of the templatized file to
-     be written.
-    :param kwargs: A dict of arguments passed to jinja2 when rendering
-     template.
-    :param _module: An optional module (to look for template files) passed to
-     jinja2 PackageLoader.
-    :param _dir: An optional directory (to look for template files) passed to
-     jinja2 PackageLoader
-    :return: None
+    Execute the given command and returns None.
+    :param cmd: A `sh.Command` object to execute.
+    :param debug: An optional bool to toggle debug output.
+    :return: ``sh`` object
     """
-    src = os.path.expanduser(src)
-    path = os.path.dirname(src)
-    filename = os.path.basename(src)
-
-    # template file doesn't exist
-    if path and not os.path.isfile(src):
-        msg = 'Unable to locate template file: {}'.format(src)
-        print_error(msg)
-        sysexit()
-
-    # look for template in filesystem, then molecule package
-    loader = jinja2.ChoiceLoader([
-        jinja2.FileSystemLoader(
-            path, followlinks=True), jinja2.PackageLoader(_module, _dir)
-    ])
-
-    env = jinja2.Environment(loader=loader)
-    template = env.get_template(filename)
-
-    with open(dest, 'w') as f:
-        f.write(template.render(**kwargs))
+    if debug:
+        print_debug('COMMAND', str(cmd))
+    return cmd()
 
 
-def process_templates(template_dir, extra_context, output_dir, overwrite=True):
-    """
-    Process templates as found in the named directory.
+def os_walk(directory, pattern):
+    for root, _, files in os.walk(directory):
+        for basename in files:
+            if fnmatch.fnmatch(basename, pattern):
+                filename = os.path.join(root, basename)
 
-    :param template_dir: An absolute or relative path to a directory where the
-     templates are located. If the provided directory is a relative path, it
-     is resolved using a known location.
-    :type template_dir: str
-    :param extra_context: A set of values that are used to override default
-     or user specified values.
-    :type extra_context: dict or None
-    :param output_dir: An absolute path to a directory where the templates
-     should be written to.
-    :type output_dir: str
-    :param overwrite: Whether or not to overwrite existing templates.
-     Defaults to True.
-    :type overwrite: bool
-    :return: None
-    """
-
-    template_dir = _resolve_template_dir(template_dir)
-
-    cookiecutter.main.cookiecutter(
-        template_dir,
-        extra_context=extra_context,
-        output_dir=output_dir,
-        overwrite_if_exists=overwrite,
-        no_input=True, )
+                yield filename
 
 
-def _resolve_template_dir(template_dir):
-    if not os.path.isabs(template_dir):
-        template_dir = os.path.join(
-            os.path.dirname(__file__), 'cookiecutter', template_dir)
+def render_template(template, **kwargs):
+    t = jinja2.Environment()
+    t = t.from_string(template)
 
-    return template_dir
+    return t.render(kwargs)
 
 
 def write_file(filename, content):
@@ -173,54 +96,76 @@ def write_file(filename, content):
     with open(filename, 'w') as f:
         f.write(content)
 
+    file_prepender(filename)
 
-def format_instance_name(name, platform, instances):
+
+def file_prepender(filename):
     """
-    Takes an instance name and formats it according to options specified in the
-    instance's config and returns a string.
+    Prepend an informational header on files managed by Molecule and returns
+    None.
 
-    :param name: A string containg the name of the instance.
-    :param platform: A string containing the current molecule platform in use.
-    :param instances: A dict containing the instance data.
-    :return: str if found, otherwise None.
+    :param filename: A string containing the target filename.
+    :return: None
     """
-    working_instance = None
+    molecule_header = '# Molecule managed\n\n'
+    with open(filename, 'r+') as f:
+        content = f.read()
+        f.seek(0, 0)
+        f.write(molecule_header + content)
 
-    # search instances for given name
-    for instance in instances:
-        if instance['name'] == name:
-            working_instance = instance
+
+def safe_dump(data):
+    """
+    Dump the provided data to a YAML document and returns a string.
+
+    :param data: A string containing an absolute path to the file to parse.
+    :return: str
+    """
+    # TODO(retr0h): Do we need to encode?
+    # yaml.dump(data) produces the document as a str object in both python
+    # 2 and 3.
+    return yaml.safe_dump(data, default_flow_style=False, explicit_start=True)
+
+
+def safe_load(string):
+    """
+    Parse the provided string returns a dict.
+
+    :param string: A string to be parsed.
+    :return: dict
+    """
+    return yaml.safe_load(string) or {}
+
+
+def safe_load_file(filename):
+    """
+    Parse the provided YAML file and returns a dict.
+
+    :param filename: A string containing an absolute path to the file to parse.
+    :return: dict
+    """
+    with open(filename, 'r') as stream:
+        return safe_load(stream)
+
+
+def instance_with_scenario_name(instance_name, scenario_name):
+    return '{}-{}'.format(instance_name, scenario_name)
+
+
+def ansi_escape(string):
+    return re.sub(r'\x1b[^m]*m', '', string)
+
+
+def verbose_flag(options):
+    verbose = 'v'
+    verbose_flag = []
+    for i in range(0, 3):
+        if options.get(verbose):
+            verbose_flag = ['-{}'.format(verbose)]
+            del options[verbose]
+            if options.get('verbose'):
+                del options['verbose']
             break
+        verbose = verbose + 'v'
 
-    # no instance found with given name
-    if working_instance is None:
-        return
-
-    # return the default name if no options are specified for instance
-    if working_instance.get('options') is None:
-        return name
-
-    # add platform to name
-    if working_instance['options'].get('append_platform_to_hostname'):
-        if platform and platform != 'all':
-            return name + '-' + platform
-
-    # if we fall through, return the default name
-    return name
-
-
-def sysexit(code=1):
-    sys.exit(code)
-
-
-def run_command(cmd, debug=False):
-    """
-    Execute the given command and return None.
-
-    :param cmd: A `sh.Command` object to execute.
-    :param debug: An optional bool to toggle debug output.
-    :return: ``sh`` object
-    """
-    if debug:
-        print_debug('COMMAND', str(cmd))
-    return cmd()
+    return verbose_flag

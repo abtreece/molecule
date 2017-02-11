@@ -1,0 +1,17 @@
+---
+dependency:
+    name: galaxy
+driver:
+    name: vagrant
+lint:
+    name: ansible-lint
+platforms:
+  - name: instance-1
+provisioner:
+    name: ansible
+scenario:
+    name: default
+    setup: ../../../../../resources/playbooks/vagrant/create.yml
+    teardown: ../../../../../resources/playbooks/vagrant/destroy.yml
+verifier:
+    name: testinfra

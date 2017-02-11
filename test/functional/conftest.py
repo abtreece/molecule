@@ -1,4 +1,4 @@
-#  Copyright (c) 2015-2016 Cisco Systems, Inc.
+#  Copyright (c) 2015-2017 Cisco Systems, Inc.
 #
 #  Permission is hereby granted, free of charge, to any person obtaining a copy
 #  of this software and associated documentation files (the "Software"), to
@@ -25,16 +25,18 @@ import sh
 
 
 @pytest.fixture()
-def scenario_setup(request):
+def with_scenario(request):
     scenario = request.param
-    d = os.path.join(
+    scenario_directory = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), os.path.pardir,
         'scenarios', scenario)
 
-    os.chdir(d)
-    sh.molecule('destroy')
+    os.chdir(scenario_directory)
 
     def cleanup():
-        sh.molecule('destroy')
+        try:
+            sh.molecule('destroy')
+        except:
+            pass
 
     request.addfinalizer(cleanup)
