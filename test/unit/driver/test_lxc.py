@@ -33,7 +33,8 @@ def molecule_driver_section_data():
 
 @pytest.fixture
 def lxc_instance(molecule_driver_section_data, config_instance):
-    config_instance.config.update(molecule_driver_section_data)
+    config_instance.merge_dicts(config_instance.config,
+                                molecule_driver_section_data)
 
     return lxc.Lxc(config_instance)
 
@@ -45,7 +46,7 @@ def test_config_private_member(lxc_instance):
 def test_testinfra_options_property(lxc_instance):
     assert {
         'connection': 'ansible',
-        'ansible-inventory': '.molecule/ansible_inventory.yml'
+        'ansible-inventory': lxc_instance._config.provisioner.inventory_file
     } == lxc_instance.testinfra_options
 
 
@@ -58,21 +59,21 @@ def test_options_property(lxc_instance):
 
 
 def test_login_cmd_template_property(lxc_instance):
-    assert 'sudo lxc-attach -n {}' == lxc_instance.login_cmd_template
+    assert 'sudo lxc-attach -n {instance}' == lxc_instance.login_cmd_template
 
 
 def test_safe_files(lxc_instance):
     assert [] == lxc_instance.safe_files
 
 
-def test_login_args(lxc_instance):
-    assert ['foo'] == lxc_instance.login_args('foo')
+def test_login_options(lxc_instance):
+    assert {'instance': 'foo'} == lxc_instance.login_options('foo')
 
 
-def test_connection_options(lxc_instance):
+def test_ansible_connection_options(lxc_instance):
     x = {'ansible_connection': 'lxc'}
 
-    assert x == lxc_instance.connection_options('foo')
+    assert x == lxc_instance.ansible_connection_options('foo')
 
 
 def test_instance_config_property(lxc_instance):
@@ -91,20 +92,12 @@ def test_status(mocker, lxc_instance):
     assert result[0].driver_name == 'Lxc'
     assert result[0].provisioner_name == 'Ansible'
     assert result[0].scenario_name == 'default'
-    assert result[0].state == 'Not Created'
+    assert result[0].created == 'False'
+    assert result[0].converged == 'False'
 
     assert result[1].instance_name == 'instance-2-default'
     assert result[1].driver_name == 'Lxc'
-    assert result[0].provisioner_name == 'Ansible'
-    assert result[0].scenario_name == 'default'
-    assert result[1].state == 'Not Created'
-
-
-def test_instances_state(lxc_instance):
-    assert 'Not Created' == lxc_instance._instances_state()
-
-
-def test_instances_state_created(lxc_instance):
-    lxc_instance._config.state.change_state('created', True)
-
-    assert 'Created' == lxc_instance._instances_state()
+    assert result[1].provisioner_name == 'Ansible'
+    assert result[1].scenario_name == 'default'
+    assert result[1].created == 'False'
+    assert result[1].converged == 'False'

@@ -19,13 +19,11 @@
 #  DEALINGS IN THE SOFTWARE.
 
 import abc
-import collections
 import os
 
-Status = collections.namedtuple('Status', [
-    'instance_name', 'driver_name', 'provisioner_name', 'scenario_name',
-    'state'
-])
+from molecule import status
+
+Status = status.get_status()
 
 
 class Base(object):
@@ -41,6 +39,26 @@ class Base(object):
         self._config = config
 
     @property
+    @abc.abstractmethod
+    def name(self):  # pragma: no cover
+        """
+        Name of the driver and returns a string.
+
+        :returns: str
+        """
+        pass
+
+    @name.setter
+    @abc.abstractmethod
+    def name(self, value):
+        """
+        Driver name setter and returns None.
+
+        :returns: None
+        """
+        pass
+
+    @property
     def testinfra_options(self):
         """
         Testinfra specific options and returns a dict.
@@ -49,51 +67,48 @@ class Base(object):
         """
         return {
             'connection': 'ansible',
-            'ansible-inventory': '.molecule/ansible_inventory.yml'
+            'ansible-inventory': self._config.provisioner.inventory_file
         }
 
     @abc.abstractproperty
-    def login_cmd_template(self):
+    def login_cmd_template(self):  # pragma: no cover
         """
-        The login command template to be populated by `login_args` and
+        The login command template to be populated by `login_options` and
         returns a string.
 
         :returns: str
         """
-        pass  # pragma: no cover
+        pass
 
     @abc.abstractproperty
-    def safe_files(self):
+    def safe_files(self):  # pragma: no cover
         """
         Generated files to be preserved and returns a list.
 
         :returns: list
         """
-        pass  # pragma: no cover
+        pass
 
     @abc.abstractmethod
-    def login_args(self, instance_name):
+    def login_options(self, instance_name):  # pragma: no cover
         """
-        Arguments used in the login command and returns a list.
+        Options used in the login command and returns a dict.
 
         :param instance_name: A string containing the instance to login to.
-        :returns: list
+        :returns: dict
         """
-        pass  # pragma: no cover
+        pass
 
     @abc.abstractmethod
-    def connection_options(self, instance_name):
+    def ansible_connection_options(self, instance_name):  # pragma: no cover
         """
-        Connection options supplied to inventory and returns a dict.
+        Ansible specific connection options supplied to inventory and returns a
+        dict.
 
         :param instance_name: A string containing the instance to login to.
-        :returns: str
+        :returns: dict
         """
-        pass  # pragma: no cover
-
-    @property
-    def name(self):
-        return self._config.config['driver']['name']
+        pass
 
     @property
     def options(self):
@@ -124,7 +139,6 @@ class Base(object):
             driver_name = self.name.capitalize()
             provisioner_name = self._config.provisioner.name.capitalize()
             scenario_name = self._config.scenario.name
-            state = self._instances_state()
 
             status_list.append(
                 Status(
@@ -132,17 +146,7 @@ class Base(object):
                     driver_name=driver_name,
                     provisioner_name=provisioner_name,
                     scenario_name=scenario_name,
-                    state=state))
+                    created=str(self._config.state.created),
+                    converged=str(self._config.state.converged)))
 
         return status_list
-
-    def _instances_state(self):
-        """
-        Get instances state and returns a string.
-
-        :returns: str
-        """
-        if self._config.state.created:
-            return 'Created'
-        else:
-            return 'Not Created'

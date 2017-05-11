@@ -21,7 +21,6 @@
 import functools
 import os
 
-import m9dicts
 import pytest
 
 from molecule import util
@@ -30,8 +29,6 @@ from molecule import config
 
 @pytest.helpers.register
 def write_molecule_file(filename, data):
-    data = m9dicts.convert_to(data)
-
     util.write_file(filename, util.safe_dump(data))
 
 
@@ -51,6 +48,11 @@ def molecule_dependency_galaxy_section_data():
 @pytest.fixture
 def molecule_driver_section_data():
     return {'driver': {'name': 'docker', }, }
+
+
+@pytest.fixture
+def molecule_driver_static_section_data():
+    return {'driver': {'name': 'static'}, }
 
 
 @pytest.fixture
@@ -183,5 +185,13 @@ def patched_logger_success(mocker):
 def patched_run_command(mocker):
     m = mocker.patch('molecule.util.run_command')
     m.return_value = mocker.Mock(stdout='patched-run-command-stdout')
+
+    return m
+
+
+@pytest.fixture
+def patched_ansible_converge(mocker):
+    m = mocker.patch('molecule.provisioner.ansible.Ansible.converge')
+    m.return_value = 'patched-ansible-converge-stdout'
 
     return m

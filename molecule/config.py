@@ -32,9 +32,12 @@ from molecule.dependency import ansible_galaxy
 from molecule.dependency import gilt
 from molecule.driver import dockr
 from molecule.driver import lxc
+from molecule.driver import lxd
+from molecule.driver import static
 from molecule.driver import vagrant
 from molecule.lint import ansible_lint
 from molecule.provisioner import ansible
+from molecule.verifier import goss
 from molecule.verifier import testinfra
 
 LOG = logger.get_logger(__name__)
@@ -59,9 +62,9 @@ class Config(object):
     references.
     """
 
-    def __init__(self, molecule_file, args=None, command_args=None):
+    def __init__(self, molecule_file, args={}, command_args={}):
         """
-        Initialize a new config version one class and returns None.
+        Initialize a new config class and returns None.
 
         :param molecule_file: A string containing the path to the Molecule file
          to be parsed.
@@ -72,8 +75,8 @@ class Config(object):
         """
         # TODO(retr0h): This file should be merged.
         self.molecule_file = molecule_file
-        self.args = args if args else {}
-        self.command_args = command_args if command_args else {}
+        self.args = args
+        self.command_args = command_args
         self.config = self._combine()
 
     @property
@@ -92,15 +95,44 @@ class Config(object):
 
     @property
     def driver(self):
-        driver_name = self.config['driver']['name']
+        driver_name = self._get_driver_name()
+        driver = None
+
         if driver_name == 'docker':
-            return dockr.Dockr(self)
-        elif driver_name == 'vagrant':
-            return vagrant.Vagrant(self)
+            driver = dockr.Dockr(self)
         elif driver_name == 'lxc':
-            return lxc.Lxc(self)
+            driver = lxc.Lxc(self)
+        elif driver_name == 'lxd':
+            driver = lxd.Lxd(self)
+        elif driver_name == 'static':
+            driver = static.Static(self)
+        elif driver_name == 'vagrant':
+            driver = vagrant.Vagrant(self)
         else:
             self._exit_with_invalid_section('driver', driver_name)
+
+        driver.name = driver_name
+
+        return driver
+
+    @property
+    def drivers(self):
+        return molecule_drivers()
+
+    @property
+    def env(self):
+        return {
+            'MOLECULE_FILE': self.molecule_file,
+            'MOLECULE_INVENTORY_FILE': self.provisioner.inventory_file,
+            'MOLECULE_SCENARIO_DIRECTORY': self.scenario.directory,
+            'MOLECULE_INSTANCE_CONFIG': self.driver.instance_config,
+            'MOLECULE_DEPENDENCY': self.dependency.name,
+            'MOLECULE_DRIVER': self.driver.name,
+            'MOLECULE_LINT': self.lint.name,
+            'MOLECULE_PROVISIONER': self.provisioner.name,
+            'MOLECULE_SCENARIO': self.scenario.name,
+            'MOLECULE_VERIFIER': self.verifier.name,
+        }
 
     @property
     def lint(self):
@@ -135,13 +167,42 @@ class Config(object):
         verifier_name = self.config['verifier']['name']
         if verifier_name == 'testinfra':
             return testinfra.Testinfra(self)
+        elif verifier_name == 'goss':
+            return goss.Goss(self)
         else:
             self._exit_with_invalid_section('verifier', verifier_name)
+
+    @property
+    def verifiers(self):
+        return molecule_verifiers()
+
+    def merge_dicts(self, a, b):
+        return merge_dicts(a, b)
+
+    def _get_driver_name(self):
+        driver_from_state_file = self.state.driver
+        driver_from_cli = self.command_args.get('driver_name')
+
+        if driver_from_state_file:
+            driver_name = driver_from_state_file
+        elif driver_from_cli:
+            driver_name = driver_from_cli
+        else:
+            driver_name = self.config['driver']['name']
+
+        if driver_from_cli and (driver_from_cli != driver_name):
+            msg = ("Instance(s) were created with the '{}' driver, but the "
+                   "subcommand is using '{}' driver.").format(driver_name,
+                                                              driver_from_cli)
+            util.sysexit_with_message(msg)
+
+        return driver_name
 
     def _combine(self):
         """
         Perform a prioritized recursive merge of the `molecule_file` with
-        defaults and returns a new dict.
+        defaults, interpolate the result with environment variables, and
+        returns a new dict.
 
         :return: dict
         """
@@ -177,18 +238,22 @@ class Config(object):
             'provisioner': {
                 'name': 'ansible',
                 'config_options': {},
+                'connection_options': {},
                 'options': {},
                 'env': {},
                 'host_vars': {},
                 'group_vars': {},
                 'children': {},
+                'playbooks': {
+                    'setup': 'create.yml',
+                    'converge': 'playbook.yml',
+                    'teardown': 'destroy.yml',
+                },
             },
             'scenario': {
                 'name': 'default',
-                'setup': 'create.yml',
-                'converge': 'playbook.yml',
-                'teardown': 'destroy.yml',
-                'check_sequence': ['create', 'converge', 'check'],
+                'check_sequence':
+                ['destroy', 'create', 'converge', 'check', 'destroy'],
                 'converge_sequence': ['create', 'converge'],
                 'test_sequence': [
                     'destroy', 'dependency', 'syntax', 'create', 'converge',
@@ -207,9 +272,6 @@ class Config(object):
     def _exit_with_invalid_section(self, section, name):
         msg = "Invalid {} named '{}' configured.".format(section, name)
         util.sysexit_with_message(msg)
-
-    def merge_dicts(self, a, b):
-        return merge_dicts(a, b)
 
 
 def merge_dicts(a, b):
@@ -245,8 +307,8 @@ def merge_dicts(a, b):
     :param b: the dictionary to import
     :return: dict
     """
-    conf = anyconfig.to_container(a, ac_merge=MERGE_STRATEGY)
-    conf.update(b)
+    conf = a
+    anyconfig.merge(a, b, ac_merge=MERGE_STRATEGY)
 
     return conf
 
@@ -261,3 +323,17 @@ def molecule_ephemeral_directory(path):
 
 def molecule_file(path):
     return os.path.join(path, MOLECULE_FILE)
+
+
+def molecule_drivers():
+    return [
+        dockr.Dockr(None).name,
+        lxc.Lxc(None).name,
+        lxd.Lxd(None).name,
+        static.Static(None).name,
+        vagrant.Vagrant(None).name,
+    ]
+
+
+def molecule_verifiers():
+    return [goss.Goss(None).name, testinfra.Testinfra(None).name]

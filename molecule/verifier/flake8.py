@@ -46,7 +46,12 @@ class Flake8(base.Base):
         """
         super(Flake8, self).__init__(config)
         self._flake8_command = None
-        self._tests = self._get_tests()
+        if config:
+            self._tests = self._get_tests()
+
+    @property
+    def name(self):
+        return 'testinfra'
 
     @property
     def default_options(self):
@@ -79,7 +84,7 @@ class Flake8(base.Base):
         if self._flake8_command is None:
             self.bake()
 
-        msg = 'Executing flake8 on files found in {}/...'.format(
+        msg = 'Executing Flake8 on files found in {}/...'.format(
             self.directory)
         LOG.info(msg)
 

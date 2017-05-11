@@ -43,7 +43,8 @@ def molecule_lint_section_data():
 
 @pytest.fixture
 def ansible_lint_instance(molecule_lint_section_data, config_instance):
-    config_instance.config.update(molecule_lint_section_data)
+    config_instance.merge_dicts(config_instance.config,
+                                molecule_lint_section_data)
 
     return ansible_lint.AnsibleLint(config_instance)
 
@@ -88,7 +89,10 @@ def test_options_property_handles_cli_args(ansible_lint_instance):
 
 
 def test_default_env_property(ansible_lint_instance):
-    assert isinstance(ansible_lint_instance.default_env, dict)
+    assert 'MOLECULE_FILE' in ansible_lint_instance.default_env
+    assert 'MOLECULE_INVENTORY_FILE' in ansible_lint_instance.default_env
+    assert 'MOLECULE_SCENARIO_DIRECTORY' in ansible_lint_instance.default_env
+    assert 'MOLECULE_INSTANCE_CONFIG' in ansible_lint_instance.default_env
 
 
 def test_env_property(ansible_lint_instance):
@@ -100,7 +104,7 @@ def test_bake(ansible_lint_instance):
     x = [
         str(sh.ansible_lint), '--foo=bar', '-v', '--exclude={}'.format(
             ansible_lint_instance._config.ephemeral_directory),
-        ansible_lint_instance._config.scenario.converge
+        ansible_lint_instance._config.provisioner.playbooks.converge
     ]
     result = str(ansible_lint_instance._ansible_lint_command).split()
 

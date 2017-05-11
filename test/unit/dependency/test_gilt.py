@@ -44,7 +44,8 @@ def molecule_dependency_section_data():
 
 @pytest.fixture
 def gilt_instance(molecule_dependency_section_data, config_instance):
-    config_instance.config.update(molecule_dependency_section_data)
+    config_instance.merge_dicts(config_instance.config,
+                                molecule_dependency_section_data)
 
     return gilt.Gilt(config_instance)
 
@@ -65,7 +66,10 @@ def test_default_options_property(gilt_config, gilt_instance):
 
 
 def test_default_env_property(gilt_instance):
-    assert isinstance(gilt_instance.default_env, dict)
+    assert 'MOLECULE_FILE' in gilt_instance.default_env
+    assert 'MOLECULE_INVENTORY_FILE' in gilt_instance.default_env
+    assert 'MOLECULE_SCENARIO_DIRECTORY' in gilt_instance.default_env
+    assert 'MOLECULE_INSTANCE_CONFIG' in gilt_instance.default_env
 
 
 def test_name_property(gilt_instance):

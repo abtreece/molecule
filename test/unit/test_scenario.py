@@ -18,8 +18,6 @@
 #  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 #  DEALINGS IN THE SOFTWARE.
 
-import os
-
 import pytest
 
 from molecule import scenario
@@ -34,30 +32,12 @@ def test_name_property(scenario_instance):
     assert 'default' == scenario_instance.name
 
 
-def test_setup_property(scenario_instance):
-    x = os.path.join(scenario_instance.directory, 'create.yml')
-
-    assert x == scenario_instance.setup
-
-
-def test_converge_property(scenario_instance):
-    x = os.path.join(scenario_instance.directory, 'playbook.yml')
-
-    assert x == scenario_instance.converge
-
-
-def test_teardown_property(scenario_instance):
-    x = os.path.join(scenario_instance.directory, 'destroy.yml')
-
-    assert x == scenario_instance.teardown
-
-
 def test_directory_property(molecule_scenario_directory, scenario_instance):
     assert molecule_scenario_directory == scenario_instance.directory
 
 
 def test_check_sequence_property(scenario_instance):
-    x = ['create', 'converge', 'check']
+    x = ['destroy', 'create', 'converge', 'check', 'destroy']
 
     assert x == scenario_instance.check_sequence
 

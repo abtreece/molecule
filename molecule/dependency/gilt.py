@@ -33,7 +33,7 @@ class Gilt(base.Base):
     """
     `Gilt`_ is an alternate dependency manager.
 
-    Additional options can be passed to `gilt` through the options
+    Additional options can be passed to `gilt overlay` through the options
     dict.  Any option set in this section will override the defaults.
 
     .. code-block:: yaml
@@ -90,7 +90,7 @@ class Gilt(base.Base):
 
         :return: dict
         """
-        return os.environ.copy()
+        return self._config.merge_dicts(os.environ.copy(), self._config.env)
 
     def bake(self):
         """

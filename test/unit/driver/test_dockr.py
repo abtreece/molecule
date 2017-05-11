@@ -33,7 +33,8 @@ def molecule_driver_section_data():
 
 @pytest.fixture
 def docker_instance(molecule_driver_section_data, config_instance):
-    config_instance.config.update(molecule_driver_section_data)
+    config_instance.merge_dicts(config_instance.config,
+                                molecule_driver_section_data)
 
     return dockr.Dockr(config_instance)
 
@@ -45,7 +46,7 @@ def test_config_private_member(docker_instance):
 def test_testinfra_options_property(docker_instance):
     assert {
         'connection': 'ansible',
-        'ansible-inventory': '.molecule/ansible_inventory.yml'
+        'ansible-inventory': docker_instance._config.provisioner.inventory_file
     } == docker_instance.testinfra_options
 
 
@@ -58,21 +59,23 @@ def test_options_property(docker_instance):
 
 
 def test_login_cmd_template_property(docker_instance):
-    assert 'docker exec -ti {} bash' == docker_instance.login_cmd_template
+    x = 'docker exec -ti {instance} bash'
+
+    assert x == docker_instance.login_cmd_template
 
 
 def test_safe_files(docker_instance):
     assert [] == docker_instance.safe_files
 
 
-def test_login_args(docker_instance):
-    assert ['foo'] == docker_instance.login_args('foo')
+def test_login_options(docker_instance):
+    assert {'instance': 'foo'} == docker_instance.login_options('foo')
 
 
-def test_connection_options(docker_instance):
+def test_ansible_connection_options(docker_instance):
     x = {'ansible_connection': 'docker'}
 
-    assert x == docker_instance.connection_options('foo')
+    assert x == docker_instance.ansible_connection_options('foo')
 
 
 def test_instance_config_property(docker_instance):
@@ -91,20 +94,12 @@ def test_status(mocker, docker_instance):
     assert result[0].driver_name == 'Docker'
     assert result[0].provisioner_name == 'Ansible'
     assert result[0].scenario_name == 'default'
-    assert result[0].state == 'Not Created'
+    assert result[0].created == 'False'
+    assert result[0].converged == 'False'
 
     assert result[1].instance_name == 'instance-2-default'
     assert result[1].driver_name == 'Docker'
-    assert result[0].provisioner_name == 'Ansible'
-    assert result[0].scenario_name == 'default'
-    assert result[1].state == 'Not Created'
-
-
-def test_instances_state(docker_instance):
-    assert 'Not Created' == docker_instance._instances_state()
-
-
-def test_instances_state_created(docker_instance):
-    docker_instance._config.state.change_state('created', True)
-
-    assert 'Created' == docker_instance._instances_state()
+    assert result[1].provisioner_name == 'Ansible'
+    assert result[1].scenario_name == 'default'
+    assert result[1].created == 'False'
+    assert result[1].converged == 'False'

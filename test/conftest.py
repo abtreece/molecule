@@ -43,12 +43,7 @@ def temp_dir(tmpdir, random_string, request):
     os.chdir(directory.strpath)
 
     def cleanup():
-        try:
-            shutil.rmtree(directory.strpath)
-        except OSError:
-            # LXC execute Molecule with sudo, which wreak havoc
-            # on functional tests.
-            pass
+        shutil.rmtree(directory.strpath)
 
     request.addfinalizer(cleanup)
 
@@ -60,7 +55,11 @@ def get_docker_executable():
 
 
 def get_lxc_executable():
-    return not distutils.spawn.find_executable('lxc')
+    return not distutils.spawn.find_executable('lxc-start')
+
+
+def get_lxd_executable():
+    return not distutils.spawn.find_executable('lxd')
 
 
 def get_vagrant_executable():
@@ -80,6 +79,11 @@ def supports_docker():
 @pytest.helpers.register
 def supports_lxc():
     return pytest.mark.skipif(get_lxc_executable(), reason='LXC not supported')
+
+
+@pytest.helpers.register
+def supports_lxd():
+    return pytest.mark.skipif(get_lxd_executable(), reason='LXC not supported')
 
 
 @pytest.helpers.register

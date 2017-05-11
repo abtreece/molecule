@@ -32,6 +32,27 @@ class Vagrant(base.Base):
     The class responsible for managing `Vagrant`_ instances.  `Vagrant`_ is
     `not` the default driver used in Molecule.
 
+    .. important::
+
+        This driver is alpha quality software.  Do not perform any additonal
+        tasks inside the `setup` playbook.  Molecule does not know about the
+        Vagrant instances' configuration until the `converge` playbook is
+        executed.
+
+        The `setup` playbook boots instances, then the instance data is written
+        to disk.  The instance data is then added to Molecule's Ansible
+        inventory on the next execution of `molecule.command.create`, which
+        happens to be the `converge` playbook.
+
+        This is an area needing improvement.  Gluing togher Ansible playbook
+        return data and molecule is clunky.  Moving the playbook execution
+        from `sh` to python is less than ideal, since the playbook's return
+        data needs handled by an internal callback plugin.
+
+        Operating this far inside Ansible's internals doesn't feel right.  Nor
+        does orchestrating Ansible's CLI with Molecule.  Ansible is throwing
+        pieces over the wall, which Molecule is picking up and reconstructing.
+
     .. code-block:: yaml
 
         driver:
@@ -46,6 +67,15 @@ class Vagrant(base.Base):
 
     def __init__(self, config):
         super(Vagrant, self).__init__(config)
+        self._name = 'vagrant'
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
 
     @property
     def testinfra_options(self):
@@ -56,7 +86,13 @@ class Vagrant(base.Base):
 
     @property
     def login_cmd_template(self):
-        return 'ssh {} -l {} -p {} -i {}'
+        connection_options = ' '.join(self._get_ssh_connection_options())
+
+        return ('ssh {{instance}} '
+                '-l {{user}} '
+                '-p {{port}} '
+                '-i {{identity_file}} '
+                '{}').format(connection_options)
 
     @property
     def safe_files(self):
@@ -64,21 +100,28 @@ class Vagrant(base.Base):
             self.vagrantfile, self.vagrantfile_config, self.instance_config
         ]
 
-    def login_args(self, instance_name):
+    def login_options(self, instance_name):
         d = self._get_instance_config(instance_name)
 
-        return [d['HostName'], d['User'], d['Port'], d['IdentityFile']]
+        return {
+            'instance': d['HostName'],
+            'user': d['User'],
+            'port': d['Port'],
+            'identity_file': d['IdentityFile'],
+        }
 
-    def connection_options(self, instance_name):
+    def ansible_connection_options(self, instance_name):
         try:
             d = self._get_instance_config(instance_name)
 
             return {
-                'ansible_ssh_user': d['User'],
-                'ansible_ssh_host': d['HostName'],
-                'ansible_ssh_port': d['Port'],
-                'ansible_ssh_private_key_file': d['IdentityFile'],
-                'connection': 'ssh'
+                'ansible_user': d['User'],
+                'ansible_host': d['HostName'],
+                'ansible_port': d['Port'],
+                'ansible_private_key_file': d['IdentityFile'],
+                'connection': 'ssh',
+                'ansible_ssh_extra_args':
+                ' '.join(self._get_ssh_connection_options()),
             }
         except StopIteration:
             return {}
@@ -102,3 +145,12 @@ class Vagrant(base.Base):
         return next(
             item for item in instance_config_dict.get('results', {})
             if item['Host'] == instance_name)
+
+    def _get_ssh_connection_options(self):
+        return [
+            '-o UserKnownHostsFile=/dev/null',
+            '-o ControlMaster=auto',
+            '-o ControlPersist=60s',
+            '-o IdentitiesOnly=yes',
+            '-o StrictHostKeyChecking=no',
+        ]

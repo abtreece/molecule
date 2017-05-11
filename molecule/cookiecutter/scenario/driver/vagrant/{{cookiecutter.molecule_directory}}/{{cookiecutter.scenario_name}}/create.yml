@@ -1,8 +1,10 @@
 ---
-{% raw %}
+{% raw -%}
 - hosts: localhost
   connection: local
   vars:
+    molecule_file: "{{ lookup('env','MOLECULE_FILE') }}"
+    molecule_instance_config: "{{ lookup('env','MOLECULE_INSTANCE_CONFIG') }}"
     molecule_yml: "{{ lookup('file', molecule_file) | from_yaml }}"
   tasks:
     - name: Create molecule instance(s)
@@ -18,12 +20,4 @@
       copy: content="# Molecule managed\n\n{{ instance_conf | to_yaml }}"
             dest="{{ molecule_instance_config }}"
       when: instance_conf.changed | bool
-
-- hosts: all
-  gather_facts: no
-  tasks:
-    - name: Install python for Ansible
-      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
-      become: yes
-      changed_when: False
-{%- endraw -%}
+{% endraw -%}

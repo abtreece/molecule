@@ -8,6 +8,8 @@ Contents:
 
    usage
    configuration
+   testing
+   contributing
    changelog
    authors
 

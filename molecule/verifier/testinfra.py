@@ -73,7 +73,12 @@ class Testinfra(base.Base):
         """
         super(Testinfra, self).__init__(config)
         self._testinfra_command = None
-        self._tests = self._get_tests()
+        if config:
+            self._tests = self._get_tests()
+
+    @property
+    def name(self):
+        return 'testinfra'
 
     @property
     def default_options(self):
@@ -98,7 +103,7 @@ class Testinfra(base.Base):
 
         :return: dict
         """
-        return os.environ.copy()
+        return self._config.merge_dicts(os.environ.copy(), self._config.env)
 
     def bake(self):
         """
@@ -106,7 +111,6 @@ class Testinfra(base.Base):
 
         :return: None
         """
-
         options = self.options
         verbose_flag = util.verbose_flag(options)
 
@@ -139,7 +143,7 @@ class Testinfra(base.Base):
         f = flake8.Flake8(self._config)
         f.execute()
 
-        msg = 'Executing testinfra tests found in {}/...'.format(
+        msg = 'Executing Testinfra tests found in {}/...'.format(
             self.directory)
         LOG.info(msg)
 

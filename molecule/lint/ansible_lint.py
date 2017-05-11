@@ -61,7 +61,7 @@ class AnsibleLint(base.Base):
 
     .. code-block:: yaml
 
-        verifier:
+        lint:
           name: ansible-lint
           env:
             FOO: bar
@@ -100,7 +100,7 @@ class AnsibleLint(base.Base):
 
         :return: dict
         """
-        return os.environ.copy()
+        return self._config.merge_dicts(os.environ.copy(), self._config.env)
 
     def bake(self):
         """
@@ -115,7 +115,7 @@ class AnsibleLint(base.Base):
         self._ansible_lint_command = sh.ansible_lint.bake(
             options,
             exclude_args,
-            self._config.scenario.converge,
+            self._config.provisioner.playbooks.converge,
             _env=self.env,
             _out=LOG.out,
             _err=LOG.error)

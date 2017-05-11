@@ -47,9 +47,14 @@ class Login(base.Base):
 
         >>> molecule login --host hotname --scenario-name foo
 
+        Executing with `debug`:
+
+        >>> molecule --debug list
+
         :return: None
         """
-        if not self._config.state.created:
+        is_static_driver = self._config.driver.name == 'static'
+        if not self._config.state.created and not is_static_driver:
             msg = 'Instances not created.  Please create instances first.'
             util.sysexit_with_message(msg)
 
@@ -82,14 +87,14 @@ class Login(base.Base):
         return match[0]
 
     def _get_login(self, hostname):  # pragma: no cover
-        login_cmd = self._config.driver.login_cmd_template
-        login_args = self._config.driver.login_args(hostname)
+        login_options = self._config.driver.login_options(hostname)
+        login_cmd = self._config.driver.login_cmd_template.format(
+            **login_options)
 
         lines, columns = os.popen('stty size', 'r').read().split()
         dimensions = (int(lines), int(columns))
-        self._pt = pexpect.spawn(
-            '/usr/bin/env ' + login_cmd.format(*login_args),
-            dimensions=dimensions)
+        cmd = '/usr/bin/env {}'.format(login_cmd)
+        self._pt = pexpect.spawn(cmd, dimensions=dimensions)
         signal.signal(signal.SIGWINCH, self._sigwinch_passthrough)
         self._pt.interact()
 
@@ -114,9 +119,8 @@ def login(ctx, host, scenario_name):  # pragma: no cover
     command_args = {
         'subcommand': __name__,
         'host': host,
-        'scenario_name': scenario_name
+        'scenario_name': scenario_name,
     }
 
-    for config in base.get_configs(args, command_args):
-        l = Login(config)
-        l.execute()
+    for c in base.get_configs(args, command_args):
+        Login(c).execute()
